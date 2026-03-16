@@ -1,0 +1,61 @@
+name: Build cryptography wheel (Windows ARM64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: 'Python version (e.g. 3.11, 3.12)'
+        required: true
+        default: '3.12'
+      cryptography_version:
+        description: 'cryptography version (e.g. 44.0.2, leave blank for latest)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          architecture: arm64
+
+      # Rust is pre-installed on windows-11-arm runners, but ensure
+      # the aarch64-pc-windows-msvc target is present.
+      - name: Set up Rust (ARM64 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      # vcpkg is pre-installed on GitHub-hosted runners.
+      # Build OpenSSL for arm64-windows (static libs).
+      - name: Install OpenSSL via vcpkg
+        run: |
+          vcpkg install openssl:arm64-windows
+        shell: pwsh
+
+      - name: Build cryptography wheel
+        env:
+          OPENSSL_DIR: C:\vcpkg\installed\arm64-windows
+          OPENSSL_INCLUDE_DIR: C:\vcpkg\installed\arm64-windows\include
+          OPENSSL_LIB_DIR: C:\vcpkg\installed\arm64-windows\lib
+          OPENSSL_STATIC: "1"
+        run: |
+          pip install --upgrade pip wheel
+          $pkg = if ("${{ inputs.cryptography_version }}" -ne "") { "cryptography==${{ inputs.cryptography_version }}" } else { "cryptography" }
+          pip wheel $pkg --no-binary cryptography -w dist/
+        shell: pwsh
+
+      - name: List built wheel
+        run: Get-ChildItem dist/
+        shell: pwsh
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptography-cp${{ inputs.python_version }}-win-arm64
+          path: dist/*.whl
+          retention-days: 30
